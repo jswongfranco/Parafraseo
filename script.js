@@ -3,6 +3,11 @@ if (typeof pdfjsLib !== 'undefined') {
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 }
 
+// Verificar que la librería docx se cargó correctamente
+function isDocxAvailable() {
+  return typeof docx !== 'undefined' && docx && typeof docx.Document === 'function';
+}
+
 // Elementos del DOM
 const fileInput = document.getElementById('file-input');
 const dropZone = document.getElementById('drop-zone');
@@ -64,6 +69,13 @@ function init() {
   });
   
   updateIntensity(intensitySlider.value);
+  
+  // Mostrar advertencia si docx no está disponible
+  if (!isDocxAvailable()) {
+    showErr('⚠️ La librería DOCX no se cargó correctamente. La descarga en DOCX podría fallar. Recarga la página si persiste.', true);
+  } else {
+    console.log('✅ Librería DOCX cargada correctamente');
+  }
 }
 
 function switchMode(mode) {
@@ -252,7 +264,6 @@ async function copyOutput() {
   showErr('✅ Copiado al portapapeles', false);
 }
 
-// FUNCIÓN DE DESCARGA DOCX REPARADA
 async function downloadAsDocx() {
   const text = outputTextarea.value;
   if (!text) {
@@ -260,15 +271,9 @@ async function downloadAsDocx() {
     return;
   }
 
-  // Esperar un poco más si la librería aún no está lista
-  let retries = 0;
-  while (typeof docx === 'undefined' && retries < 5) {
-    await new Promise(r => setTimeout(r, 200));
-    retries++;
-  }
-
-  if (typeof docx === 'undefined') {
-    showErr('❌ La librería docx no está disponible. Intenta recargar la página o usa otro navegador.', true);
+  // Verificar disponibilidad de la librería docx
+  if (!isDocxAvailable()) {
+    showErr('❌ La librería DOCX no está cargada. Recarga la página o verifica tu conexión a internet.', true);
     return;
   }
 
@@ -276,23 +281,28 @@ async function downloadAsDocx() {
     const { Document, Packer, Paragraph, TextRun } = docx;
     
     const lines = text.split(/\r?\n/);
-    const paragraphs = lines.map(line => {
+    const paragraphs = [];
+    
+    for (const line of lines) {
       const trimmed = line.trim();
-      const isTitle = trimmed.length < 50 && 
-                     (trimmed.includes('#') || 
-                      (trimmed === trimmed.toUpperCase() && trimmed.length > 0 && !trimmed.endsWith('.')));
-      return new Paragraph({
+      // Detectar títulos: línea corta, con #, o completamente mayúsculas (y no muy larga)
+      const isTitle = trimmed.length > 0 && trimmed.length < 60 && 
+                     (trimmed.startsWith('#') || 
+                      trimmed.startsWith('##') ||
+                      (trimmed === trimmed.toUpperCase() && trimmed.length < 40 && !trimmed.endsWith('.')));
+      
+      paragraphs.push(new Paragraph({
         children: [
           new TextRun({
-            text: line,
+            text: line || ' ',
             bold: isTitle,
             size: isTitle ? 28 : 24,
             font: isTitle ? "Arial" : "Calibri"
           })
         ],
         spacing: { after: isTitle ? 200 : 100 }
-      });
-    });
+      }));
+    }
 
     const doc = new Document({
       sections: [{
@@ -310,70 +320,17 @@ async function downloadAsDocx() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    showErr('✅ Documento DOCX descargado', false);
+    showErr('✅ Documento DOCX descargado correctamente', false);
   } catch (error) {
-    console.error('Error al generar DOCX:', error);
-    showErr('Error al generar el archivo DOCX: ' + error.message, true);
-  }
-}
-
-  // Verificar que la librería docx esté cargada
-  if (typeof docx === 'undefined') {
-    showErr('❌ La librería docx no está disponible. Revisa tu conexión a internet o recarga la página.', true);
-    return;
-  }
-
-  try {
-    const { Document, Packer, Paragraph, TextRun } = docx;
-    
-    // Dividir el texto en líneas y crear párrafos
-    const lines = text.split(/\r?\n/);
-    const paragraphs = lines.map(line => {
-      const trimmed = line.trim();
-      // Detectar si es un título: línea corta (< 50 caracteres) y no termina en punto, o contiene #, o está en mayúsculas
-      const isTitle = trimmed.length < 50 && 
-                     (trimmed.includes('#') || 
-                      (trimmed === trimmed.toUpperCase() && trimmed.length > 0 && !trimmed.endsWith('.')));
-      return new Paragraph({
-        children: [
-          new TextRun({
-            text: line,
-            bold: isTitle,
-            size: isTitle ? 28 : 24,
-            font: isTitle ? "Arial" : "Calibri"
-          })
-        ],
-        spacing: { after: isTitle ? 200 : 100 }
-      });
-    });
-
-    const doc = new Document({
-      sections: [{
-        properties: {},
-        children: paragraphs
-      }]
-    });
-
-    const blob = await Packer.toBlob(doc);
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'parafraseado.docx';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    showErr('✅ Documento DOCX descargado', false);
-  } catch (error) {
-    console.error('Error al generar DOCX:', error);
-    showErr('Error al generar el archivo DOCX: ' + error.message, true);
+    console.error('Error en downloadAsDocx:', error);
+    showErr('Error al generar DOCX: ' + error.message, true);
   }
 }
 
 function downloadAsTxt() {
   const text = outputTextarea.value;
   if (!text) return;
-  const blob = new Blob([text], { type: 'text/plain' });
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -392,4 +349,9 @@ function resetAll() {
   showErr('');
 }
 
-init();
+// Esperar a que el DOM esté listo
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
