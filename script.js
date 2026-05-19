@@ -260,6 +260,63 @@ async function downloadAsDocx() {
     return;
   }
 
+  // Esperar un poco más si la librería aún no está lista
+  let retries = 0;
+  while (typeof docx === 'undefined' && retries < 5) {
+    await new Promise(r => setTimeout(r, 200));
+    retries++;
+  }
+
+  if (typeof docx === 'undefined') {
+    showErr('❌ La librería docx no está disponible. Intenta recargar la página o usa otro navegador.', true);
+    return;
+  }
+
+  try {
+    const { Document, Packer, Paragraph, TextRun } = docx;
+    
+    const lines = text.split(/\r?\n/);
+    const paragraphs = lines.map(line => {
+      const trimmed = line.trim();
+      const isTitle = trimmed.length < 50 && 
+                     (trimmed.includes('#') || 
+                      (trimmed === trimmed.toUpperCase() && trimmed.length > 0 && !trimmed.endsWith('.')));
+      return new Paragraph({
+        children: [
+          new TextRun({
+            text: line,
+            bold: isTitle,
+            size: isTitle ? 28 : 24,
+            font: isTitle ? "Arial" : "Calibri"
+          })
+        ],
+        spacing: { after: isTitle ? 200 : 100 }
+      });
+    });
+
+    const doc = new Document({
+      sections: [{
+        properties: {},
+        children: paragraphs
+      }]
+    });
+
+    const blob = await Packer.toBlob(doc);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'parafraseado.docx';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showErr('✅ Documento DOCX descargado', false);
+  } catch (error) {
+    console.error('Error al generar DOCX:', error);
+    showErr('Error al generar el archivo DOCX: ' + error.message, true);
+  }
+}
+
   // Verificar que la librería docx esté cargada
   if (typeof docx === 'undefined') {
     showErr('❌ La librería docx no está disponible. Revisa tu conexión a internet o recarga la página.', true);
