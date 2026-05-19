@@ -28,6 +28,7 @@ body {
   max-width: 950px;
   margin: 0 auto;
   padding: 2rem 1.5rem 4rem;
+  position: relative;
 }
 
 .header {
@@ -301,4 +302,28 @@ body {
 
 button {
   cursor: pointer;
+}
+
+/* 🧑‍💻 ESTILO PARA EL FOOTER (MARCA PERSONAL) */
+.footer {
+  text-align: center;
+  margin-top: 2rem;
+  padding: 1rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.footer strong {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.footer p {
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.footer:hover p {
+  opacity: 1;
 }
