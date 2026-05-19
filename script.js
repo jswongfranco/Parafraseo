@@ -216,7 +216,6 @@ async function startParaphrase() {
     
     try {
       const prompt = buildPrompt(chunks[i], tone, intensity, preserve);
-      // Llamada al backend de Vercel (proxy)
       const response = await fetch('/api/paraphrase', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -253,32 +252,78 @@ async function copyOutput() {
   showErr('✅ Copiado al portapapeles', false);
 }
 
+// FUNCIÓN DE DESCARGA DOCX REPARADA
 async function downloadAsDocx() {
   const text = outputTextarea.value;
-  if (!text) return;
-  const { Document, Packer, Paragraph, TextRun } = docx;
-  const paragraphs = text.split(/\n/).map(line => {
-    const isTitle = line.trim().length < 50 && (line.includes('#') || (line === line.toUpperCase() && line.length < 30));
-    return new Paragraph({ children: [new TextRun({ text: line, bold: isTitle, size: isTitle ? 28 : 24 })] });
-  });
-  const doc = new Document({ sections: [{ children: paragraphs }] });
-  const blob = await Packer.toBlob(doc);
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'parafraseado.docx';
-  a.click();
-  URL.revokeObjectURL(url);
+  if (!text) {
+    showErr('No hay texto para descargar', false);
+    return;
+  }
+
+  // Verificar que la librería docx esté cargada
+  if (typeof docx === 'undefined') {
+    showErr('❌ La librería docx no está disponible. Revisa tu conexión a internet o recarga la página.', true);
+    return;
+  }
+
+  try {
+    const { Document, Packer, Paragraph, TextRun } = docx;
+    
+    // Dividir el texto en líneas y crear párrafos
+    const lines = text.split(/\r?\n/);
+    const paragraphs = lines.map(line => {
+      const trimmed = line.trim();
+      // Detectar si es un título: línea corta (< 50 caracteres) y no termina en punto, o contiene #, o está en mayúsculas
+      const isTitle = trimmed.length < 50 && 
+                     (trimmed.includes('#') || 
+                      (trimmed === trimmed.toUpperCase() && trimmed.length > 0 && !trimmed.endsWith('.')));
+      return new Paragraph({
+        children: [
+          new TextRun({
+            text: line,
+            bold: isTitle,
+            size: isTitle ? 28 : 24,
+            font: isTitle ? "Arial" : "Calibri"
+          })
+        ],
+        spacing: { after: isTitle ? 200 : 100 }
+      });
+    });
+
+    const doc = new Document({
+      sections: [{
+        properties: {},
+        children: paragraphs
+      }]
+    });
+
+    const blob = await Packer.toBlob(doc);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'parafraseado.docx';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showErr('✅ Documento DOCX descargado', false);
+  } catch (error) {
+    console.error('Error al generar DOCX:', error);
+    showErr('Error al generar el archivo DOCX: ' + error.message, true);
+  }
 }
 
 function downloadAsTxt() {
-  const blob = new Blob([outputTextarea.value], { type: 'text/plain' });
+  const text = outputTextarea.value;
+  if (!text) return;
+  const blob = new Blob([text], { type: 'text/plain' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = 'parafraseado.txt';
   a.click();
   URL.revokeObjectURL(url);
+  showErr('✅ Archivo TXT descargado', false);
 }
 
 function resetAll() {
