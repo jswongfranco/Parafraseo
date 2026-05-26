@@ -265,7 +265,8 @@ body {
   display: none;
 }
 
-.text-input-area.visible {
+/* la visibilidad ahora la maneja JS directamente */
+.text-input-area.visible-unused {
   display: block;
 }
 
@@ -326,4 +327,17 @@ button {
 
 .footer:hover p {
   opacity: 1;
+}
+/* ─── Responsive: botones de descarga en mobile ─── */
+@media (max-width: 600px) {
+  .output-header {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .options-grid {
+    grid-template-columns: 1fr;
+  }
+  .stats-row {
+    flex-direction: column;
+  }
 }

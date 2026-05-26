@@ -7,8 +7,6 @@
   <!-- FAVICON con emoji ✍️ -->
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50' y='50' text-anchor='middle' dy='.3em' font-size='70'%3E✍️%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
-  <!-- Precargar librería DOCX -->
-  <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.min.js"></script>
 </head>
 <body>
 <div class="app">
@@ -20,8 +18,8 @@
   <div class="card">
     <div class="card-title">📄 Documento</div>
     <div class="mode-tabs">
-      <button class="mode-tab active" id="tab-file">📁 Subir archivo</button>
-      <button class="mode-tab" id="tab-text">✏️ Pegar texto</button>
+      <button type="button" class="mode-tab active" id="tab-file">📁 Subir archivo</button>
+      <button type="button" class="mode-tab" id="tab-text">✏️ Pegar texto</button>
     </div>
     <div id="file-mode">
       <div class="drop-zone" id="drop-zone">
@@ -33,15 +31,17 @@
             <line x1="12" y1="3" x2="12" y2="15"/>
           </svg>
         </div>
-        <div>Arrastra o haz clic (PDF, DOCX, TXT)</div>
+        <div>Arrastra o haz clic (PDF, DOCX, TXT · máx. 5 MB)</div>
       </div>
       <div class="file-loaded" id="file-loaded" style="display:none">
         <div id="file-icon"></div>
         <div><strong id="file-name"></strong><br><small id="file-meta"></small></div>
-        <button id="clear-file-btn" style="margin-left:auto;background:none;border:none;color:var(--muted)">✖</button>
+        <button type="button" id="clear-file-btn" style="margin-left:auto;background:none;border:none;color:var(--muted)">✖</button>
       </div>
     </div>
-    <textarea id="text-input" class="text-input-area" placeholder="Pega tu texto aquí... Los títulos (líneas cortas o con #) se preservarán automáticamente."></textarea>
+    <!-- El textarea inicia oculto: solo se muestra en modo "Pegar texto" -->
+    <textarea id="text-input" class="text-input-area" style="display:none"
+      placeholder="Pega tu texto aquí... Los títulos (líneas cortas o con #) se preservarán automáticamente."></textarea>
   </div>
 
   <div class="card">
@@ -78,7 +78,7 @@
   </div>
 
   <div class="err-msg" id="err-msg"></div>
-  <button class="run-btn" id="run-btn">▶ Iniciar parafraseado</button>
+  <button type="button" class="run-btn" id="run-btn">▶ Iniciar parafraseado</button>
 
   <div class="progress-section card" id="progress-section">
     <div class="progress-label" id="progress-label">Procesando...</div>
@@ -90,11 +90,11 @@
   <div class="output-section card" id="output-section">
     <div class="output-header">
       <div class="card-title">📝 Resultado</div>
-      <div style="display:flex; gap:8px;">
-        <button class="icon-btn" id="copy-btn">📋 Copiar</button>
-        <button class="icon-btn" id="download-docx-btn">📥 Descargar DOCX</button>
-        <button class="icon-btn" id="download-txt-btn">📄 Descargar TXT</button>
-        <button class="icon-btn" id="reset-btn">🔄 Nuevo</button>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button type="button" class="icon-btn" id="copy-btn">📋 Copiar</button>
+        <button type="button" class="icon-btn" id="download-docx-btn">📥 Descargar DOCX</button>
+        <button type="button" class="icon-btn" id="download-txt-btn">📄 Descargar TXT</button>
+        <button type="button" class="icon-btn" id="reset-btn">🔄 Nuevo</button>
       </div>
     </div>
     <div class="stats-row">
@@ -111,8 +111,10 @@
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
-<script src="script.js"></script>
+<!-- Scripts al final del body: evita bloqueo de renderizado -->
+<script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js" defer></script>
+<script src="script.js" defer></script>
 </body>
 </html>
