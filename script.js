@@ -69,6 +69,10 @@ function init() {
     chip.addEventListener('click', () => chip.classList.toggle('active'));
   });
 
+  // ── Auto-grow del textarea de entrada ────────────────────────────────────
+  textInput.addEventListener('input', autoGrow);
+  textInput.addEventListener('paste', () => setTimeout(autoGrow, 0));
+
   // ── Drag & drop ──────────────────────────────────────────────────────────
   dropZone.addEventListener('dragover', (e) => {
     e.preventDefault();
@@ -82,6 +86,13 @@ function init() {
   });
 
   updateIntensity(intensitySlider.value);
+}
+
+// ─── Auto-grow textarea ───────────────────────────────────────────────────────
+function autoGrow() {
+  textInput.style.height = 'auto';
+  const newHeight = Math.min(textInput.scrollHeight, 600);
+  textInput.style.height = newHeight + 'px';
 }
 
 // ─── Cambio de modo (archivo / texto pegado) ──────────────────────────────────
@@ -440,6 +451,7 @@ function downloadAsTxt() {
 function resetAll() {
   clearFile();
   textInput.value = '';
+  textInput.style.height = '';   // vuelve a la altura mínima del CSS
   outputSection.classList.remove('visible');
   progressSection.classList.remove('visible');
   progressFill.style.width = '0%';

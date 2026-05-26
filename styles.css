@@ -256,18 +256,25 @@ body {
 
 .text-input-area {
   width: 100%;
+  min-height: 220px;        /* ~10 líneas visibles de base */
+  max-height: 600px;        /* no crece infinito */
   background: var(--surface2);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 1rem;
   color: var(--text);
-  resize: vertical;
+  font-family: 'Sora', sans-serif;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  resize: none;             /* el resize manual lo reemplaza el auto-grow */
+  overflow-y: auto;
   display: none;
+  transition: border-color 0.2s;
 }
 
-/* la visibilidad ahora la maneja JS directamente */
-.text-input-area.visible-unused {
-  display: block;
+.text-input-area:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 .err-msg {
