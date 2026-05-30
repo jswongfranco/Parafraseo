@@ -1,3 +1,10 @@
+// ═══════════════════════════════════════════════════════════════════════════════
+//  ParafraseAI · Frontend
+//  by Jaime Wong Franco
+// ═══════════════════════════════════════════════════════════════════════════════
+
+'use strict';
+
 // ─── Configuración de PDF.js ────────────────────────────────────────────────
 window.addEventListener('load', () => {
   if (typeof pdfjsLib !== 'undefined') {
@@ -29,6 +36,7 @@ const outputTextarea   = document.getElementById('output-textarea');
 const statOrig         = document.getElementById('stat-orig');
 const statNew          = document.getElementById('stat-new');
 const statChunks       = document.getElementById('stat-chunks');
+const statSimilarity   = document.getElementById('stat-similarity');
 const errMsg           = document.getElementById('err-msg');
 const progressFill     = document.getElementById('progress-fill');
 const progressLabel    = document.getElementById('progress-label');
@@ -48,6 +56,7 @@ let extractedText    = '';
 let currentMode      = 'file';
 let originalFilename = '';
 let originalFileExt  = '';
+let paraphraseHistory = [];
 
 const MAX_FILE_SIZE_MB = 5;
 
@@ -74,18 +83,44 @@ function init() {
   textInput.addEventListener('paste', () => setTimeout(autoGrow, 0));
 
   // ── Drag & drop ──────────────────────────────────────────────────────────
-  dropZone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    dropZone.classList.add('drag-over');
+  ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+    dropZone.addEventListener(eventName, preventDefaults, false);
+    document.body.addEventListener(eventName, preventDefaults, false);
   });
+
+  dropZone.addEventListener('dragover', () => dropZone.classList.add('drag-over'));
   dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
   dropZone.addEventListener('drop', (e) => {
-    e.preventDefault();
     dropZone.classList.remove('drag-over');
-    if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+    const files = e.dataTransfer.files;
+    if (files.length > 1) {
+      showErr('Solo se permite subir un archivo a la vez.');
+      return;
+    }
+    if (files[0]) handleFile(files[0]);
+  });
+
+  // ── Atajos de teclado ────────────────────────────────────────────────────
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey) {
+      if (e.key === 'Enter' && !runBtn.disabled) {
+        e.preventDefault();
+        startParaphrase();
+      }
+      if (e.key === 'c' && document.activeElement === outputTextarea) {
+        e.preventDefault();
+        copyOutput();
+      }
+    }
   });
 
   updateIntensity(intensitySlider.value);
+  loadHistory();
+}
+
+function preventDefaults(e) {
+  e.preventDefault();
+  e.stopPropagation();
 }
 
 // ─── Auto-grow textarea ───────────────────────────────────────────────────────
@@ -102,7 +137,10 @@ function switchMode(mode) {
   tabText.classList.toggle('active', mode === 'text');
   fileModeDiv.style.display = mode === 'file' ? 'block' : 'none';
   textInput.style.display   = mode === 'text'  ? 'block' : 'none';
-  if (mode === 'text') extractedText = '';
+  if (mode === 'text') {
+    extractedText = '';
+    setTimeout(() => textInput.focus(), 100);
+  }
 }
 
 // ─── Manejo de archivo ────────────────────────────────────────────────────────
@@ -127,13 +165,17 @@ async function handleFile(file) {
   fileNameSpan.innerText = file.name;
   fileMetaSpan.innerText = 'Leyendo...';
 
+  // Icono según extensión
+  const icons = { pdf: '📕', docx: '📘', doc: '📘', txt: '📄' };
+  document.getElementById('file-icon').innerText = icons[ext] || '📎';
+
   try {
     if (ext === 'txt')                      extractedText = await file.text();
     else if (ext === 'pdf')                 extractedText = await extractPDF(file);
     else /* docx / doc */                   extractedText = await extractDOCX(file);
 
     const wc = countWords(extractedText);
-    fileMetaSpan.innerHTML = `${(file.size / 1024).toFixed(1)} KB · ${wc} palabras`;
+    fileMetaSpan.innerHTML = `${(file.size / 1024).toFixed(1)} KB · ${wc} palabras · ${ext.toUpperCase()}`;
     showErr('');
   } catch (e) {
     showErr('Error al leer el archivo: ' + e.message);
@@ -174,12 +216,18 @@ function countWords(text) {
   return trimmed.split(/\s+/).length;
 }
 
-function updateIntensity(val) {
-  const labels = ['Conservador', 'Media', 'Agresivo'];
-  intensityVal.innerText = labels[val - 1];
+function countChars(text) {
+  return text.replace(/\s/g, '').length;
 }
 
-// Temperatura según intensidad: conservador=0.3, medio=0.7, agresivo=1.0
+function updateIntensity(val) {
+  const labels = ['Conservador', 'Media', 'Agresivo'];
+  const colors = ['#34d399', '#6ee7b7', '#fbbf24'];
+  intensityVal.innerText = labels[val - 1];
+  intensityVal.style.color = colors[val - 1];
+}
+
+// Temperatura según intensidad
 function intensityToTemperature(val) {
   return [0.3, 0.7, 1.0][val - 1] ?? 0.7;
 }
@@ -193,10 +241,22 @@ let errTimer = null;
 function showErr(msg, isError = true) {
   errMsg.innerText = msg;
   errMsg.classList.toggle('visible', !!msg);
+  errMsg.style.background = isError ? 'rgba(248,113,113,0.08)' : 'rgba(52,211,153,0.08)';
+  errMsg.style.borderColor = isError ? 'rgba(248,113,113,0.2)' : 'rgba(52,211,153,0.2)';
+  errMsg.style.color = isError ? 'var(--danger)' : 'var(--success)';
   if (errTimer) clearTimeout(errTimer);
   if (!isError && msg) {
     errTimer = setTimeout(() => errMsg.classList.remove('visible'), 3000);
   }
+}
+
+// ─── Similitud semántica simple (Jaccard de palabras) ────────────────────────
+function calculateSimilarity(text1, text2) {
+  const words1 = new Set(text1.toLowerCase().split(/\W+/).filter(w => w.length > 3));
+  const words2 = new Set(text2.toLowerCase().split(/\W+/).filter(w => w.length > 3));
+  const intersection = new Set([...words1].filter(x => words2.has(x)));
+  const union = new Set([...words1, ...words2]);
+  return union.size === 0 ? 0 : Math.round((intersection.size / union.size) * 100);
 }
 
 // ─── Chunking respetando límites de título ────────────────────────────────────
@@ -216,9 +276,6 @@ function splitIntoChunks(text, maxWords = 600) {
   for (let i = 0; i < lines.length; i++) {
     const line  = lines[i];
     const words = line.trim() ? line.trim().split(/\s+/).length : 0;
-
-    // Si agregar esta línea supera el límite Y la línea siguiente es un título
-    // (o ya tenemos suficiente contenido), cerramos el chunk actual.
     const nextIsTitle = i + 1 < lines.length && isTitle(lines[i + 1]);
 
     if (wordCount + words > maxWords && current.length > 0 && nextIsTitle) {
@@ -237,15 +294,15 @@ function splitIntoChunks(text, maxWords = 600) {
 // ─── Construcción del prompt ──────────────────────────────────────────────────
 function buildPrompt(chunk, tone, intensity, preserve) {
   const tones = {
-    natural: 'natural y fluido',
-    academico: 'académico y formal',
-    formal: 'formal y profesional',
-    conversacional: 'conversacional y cercano'
+    natural: 'natural y fluido, como lo escribiría una persona real',
+    academico: 'académico y formal, apropiado para papers y ensayos universitarios',
+    formal: 'formal y profesional, apropiado para documentos de negocios',
+    conversacional: 'conversacional y cercano, como una conversación entre amigos'
   };
   const intensityText = {
-    1: 'cambios mínimos (solo sinónimos puntuales, conserva estructura de oraciones)',
-    2: 'cambios medios (reestructura oraciones, varía vocabulario)',
-    3: 'reescritura profunda (transforma completamente la redacción manteniendo el significado)'
+    1: 'cambios mínimos (solo sinónimos puntuales, conserva estructura de oraciones casi intacta)',
+    2: 'cambios medios (reestructura algunas oraciones, varía vocabulario manteniendo fluidez)',
+    3: 'reescritura profunda (transforma completamente la redacción manteniendo el significado exacto)'
   };
 
   let preserveRules = '';
@@ -253,28 +310,36 @@ function buildPrompt(chunk, tone, intensity, preserve) {
   if (preserve.includes('numbers'))   preserveRules += '- Preserva todos los números, fechas, porcentajes y datos exactos sin cambiarlos.\n';
   if (preserve.includes('technical')) preserveRules += '- Mantén los términos técnicos, siglas y nombres propios sin usar sinónimos.\n';
 
-  return `Eres un parafraseador profesional en español. Tu tarea es reescribir ÚNICAMENTE los párrafos de contenido, respetando siempre los títulos.
+  return `Eres un parafraseador profesional en español con amplia experiencia en reescritura de textos. Tu tarea es reescribir ÚNICAMENTE los párrafos de contenido, respetando siempre los títulos.
 
 REGLAS OBLIGATORIAS:
 - Tono: ${tones[tone] || 'natural y fluido'}.
 - Intensidad: ${intensityText[intensity]}.
-${preserveRules}- NO añadas comentarios, explicaciones ni prefijos como "Aquí el texto:" o "Paráfrasis:".
+${preserveRules}- NO añadas comentarios, explicaciones, introducciones ni prefijos como "Aquí el texto:" o "Paráfrasis:".
+- NO uses frases como "En resumen", "Para concluir", "En síntesis" al final.
 - Devuelve SOLO el texto reescrito, manteniendo la misma estructura de líneas y párrafos.
 - Los títulos y encabezados deben aparecer idénticos al original.
+- Mantén la coherencia y cohesión entre párrafos.
 
 TEXTO A PARAFRASEAR:
 ${chunk}`;
 }
 
-// ─── Fetch con timeout ────────────────────────────────────────────────────────
-async function fetchWithTimeout(url, options, timeoutMs = 30000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, { ...options, signal: controller.signal });
-    return response;
-  } finally {
-    clearTimeout(timer);
+// ─── Fetch con timeout y reintentos ─────────────────────────────────────────
+async function fetchWithTimeout(url, options, timeoutMs = 30000, retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timer);
+      return response;
+    } catch (err) {
+      clearTimeout(timer);
+      if (attempt === retries) throw err;
+      logLine.innerText = `Reintentando... (${attempt + 1}/${retries})`;
+      await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+    }
   }
 }
 
@@ -300,6 +365,11 @@ async function startParaphrase() {
   const chunks = splitIntoChunks(source, 600);
   const total  = chunks.length;
 
+  if (total > 20) {
+    showErr(`El documento es muy largo (${total} segmentos). Considera dividirlo en partes más pequeñas.`);
+    return;
+  }
+
   runBtn.disabled = true;
   progressSection.classList.add('visible');
   outputSection.classList.remove('visible');
@@ -309,6 +379,7 @@ async function startParaphrase() {
 
   const results    = [];
   let errorCount   = 0;
+  const startTime  = Date.now();
 
   for (let i = 0; i < chunks.length; i++) {
     const dot = document.getElementById(`dot-${i}`);
@@ -323,7 +394,7 @@ async function startParaphrase() {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ prompt, model, temperature })
-      }, 45000);
+      }, 45000, 1);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -340,32 +411,72 @@ async function startParaphrase() {
       errorCount++;
       dot.classList.remove('active');
       dot.classList.add('error');
-      // Conserva el texto original en caso de error para no perder contenido
       results.push(chunks[i]);
       console.error(`Error segmento ${i + 1}:`, err.message);
     }
 
-    await new Promise(r => setTimeout(r, 150));
+    // Pequeña pausa entre requests para no saturar la API
+    if (i < chunks.length - 1) {
+      await new Promise(r => setTimeout(r, 300));
+    }
   }
 
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   progressFill.style.width = '100%';
   progressLabel.innerText  = errorCount > 0
-    ? `⚠️ Completado con ${errorCount} error(es). Se conservó el texto original en esos segmentos.`
-    : '✅ Parafraseado completado';
+    ? `⚠️ Completado con ${errorCount} error(es) en ${elapsed}s`
+    : `✅ Parafraseado completado en ${elapsed}s`;
   logLine.innerText = '';
 
   const finalText = results.join('\n\n');
   outputTextarea.value = finalText;
-  statOrig.innerText   = countWords(source);
-  statNew.innerText    = countWords(finalText);
+  statOrig.innerText   = countWords(source).toLocaleString();
+  statNew.innerText    = countWords(finalText).toLocaleString();
   statChunks.innerText = total;
+
+  // Calcular similitud
+  const similarity = calculateSimilarity(source, finalText);
+  if (statSimilarity) statSimilarity.innerText = similarity + '%';
+
   outputSection.classList.add('visible');
 
   if (errorCount > 0) {
     showErr(`⚠️ ${errorCount} de ${total} segmento(s) fallaron. El texto original fue conservado en esas secciones.`);
   }
 
+  // Guardar en historial
+  saveToHistory({
+    date: new Date().toISOString(),
+    tone,
+    intensity,
+    model,
+    originalWords: countWords(source),
+    newWords: countWords(finalText),
+    similarity,
+    preview: finalText.substring(0, 100) + '...'
+  });
+
   runBtn.disabled = false;
+}
+
+// ─── Historial local ──────────────────────────────────────────────────────────
+function saveToHistory(entry) {
+  try {
+    paraphraseHistory = JSON.parse(localStorage.getItem('parafrase_history') || '[]');
+    paraphraseHistory.unshift(entry);
+    if (paraphraseHistory.length > 10) paraphraseHistory.pop();
+    localStorage.setItem('parafrase_history', JSON.stringify(paraphraseHistory));
+  } catch (e) {
+    console.warn('No se pudo guardar historial:', e);
+  }
+}
+
+function loadHistory() {
+  try {
+    paraphraseHistory = JSON.parse(localStorage.getItem('parafrase_history') || '[]');
+  } catch (e) {
+    paraphraseHistory = [];
+  }
 }
 
 // ─── Copiar al portapapeles ───────────────────────────────────────────────────
@@ -376,7 +487,11 @@ async function copyOutput() {
     await navigator.clipboard.writeText(text);
     showErr('✅ Copiado al portapapeles', false);
   } catch {
-    showErr('No se pudo copiar. Selecciona el texto manualmente.', true);
+    // Fallback
+    outputTextarea.select();
+    outputTextarea.setSelectionRange(0, 999999);
+    document.execCommand('copy');
+    showErr('✅ Copiado al portapapeles', false);
   }
 }
 
@@ -391,7 +506,7 @@ async function downloadAsDocx() {
   }
 
   try {
-    const { Document, Packer, Paragraph, TextRun, HeadingLevel } = docx;
+    const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } = docx;
     const lines = text.split(/\r?\n/);
     const paragraphs = [];
 
@@ -402,24 +517,40 @@ async function downloadAsDocx() {
          (trimmed === trimmed.toUpperCase() && trimmed.length < 50 && !trimmed.endsWith('.')));
 
       if (lineIsTitle) {
+        const cleanTitle = trimmed.replace(/^#+\s*/, '');
         paragraphs.push(new Paragraph({
-          children: [new TextRun({ text: trimmed.replace(/^#+\s*/, ''), bold: true, size: 28, font: 'Arial' })],
-          spacing: { before: 240, after: 120 }
+          children: [new TextRun({ text: cleanTitle, bold: true, size: 28, font: 'Arial', color: '1a1a1a' })],
+          spacing: { before: 280, after: 140 },
+          alignment: AlignmentType.LEFT
         }));
+      } else if (trimmed.length === 0) {
+        paragraphs.push(new Paragraph({ text: '' }));
       } else {
         paragraphs.push(new Paragraph({
-          children: [new TextRun({ text: line || ' ', size: 24, font: 'Calibri' })],
-          spacing: { after: 100 }
+          children: [new TextRun({ text: line, size: 24, font: 'Calibri', color: '333333' })],
+          spacing: { after: 120, line: 276 },
+          alignment: AlignmentType.JUSTIFIED
         }));
       }
     }
 
-    const doc  = new Document({ sections: [{ properties: {}, children: paragraphs }] });
+    const doc  = new Document({
+      sections: [{
+        properties: {
+          page: {
+            margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 }
+          }
+        },
+        children: paragraphs
+      }]
+    });
+
     const blob = await Packer.toBlob(doc);
     const url  = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href  = url;
-    link.download = 'parafraseado.docx';
+    const timestamp = new Date().toISOString().slice(0, 10);
+    link.download = `parafraseado_${timestamp}.docx`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -439,8 +570,9 @@ function downloadAsTxt() {
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
-  a.download = 'parafraseado.txt';
-  document.body.appendChild(a);  // Fix: necesario para Firefox
+  const timestamp = new Date().toISOString().slice(0, 10);
+  a.download = `parafraseado_${timestamp}.txt`;
+  document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
@@ -451,12 +583,13 @@ function downloadAsTxt() {
 function resetAll() {
   clearFile();
   textInput.value = '';
-  textInput.style.height = '';   // vuelve a la altura mínima del CSS
+  textInput.style.height = '';
   outputSection.classList.remove('visible');
   progressSection.classList.remove('visible');
   progressFill.style.width = '0%';
   extractedText = '';
   showErr('');
+  logLine.innerText = '';
 }
 
 // ─── Arrancar ────────────────────────────────────────────────────────────────
